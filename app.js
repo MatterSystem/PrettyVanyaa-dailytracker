@@ -310,7 +310,7 @@ function saveDisciplineLog() {
 
     renderDashboard();
     renderCharts();
-    renderEconomyDashboard(); // Re-render to show Causal Badge
+    renderEconomyDashboard();
     renderJournal(); // Re-render journal prompt
     updateAuthorityDisplay();
 }
@@ -516,7 +516,7 @@ function renderHistory() {
                     <strong>${formatDisplayDate(e.date)}</strong>
                     <span class="status-badge ${status}">${status === 'success' ? 'Berhasil' : 'Gagal'}</span>
                     <div style="font-size:0.85rem;color:var(--text-muted);margin-top:4px">
-                        Score: ${s}/4 · Wake: ${e.wakeup === 'yes' ? 'Y' : 'N'} · Read: ${e.cognitiveRead === 'yes' ? 'Y' : 'N'} · Box: ${e.boxing === 'yes' ? 'Y' : 'N'} · Intel: ${e.intellectual === 'yes' ? 'Y' : 'N'}
+                        Score: ${s}/4 · Wake: ${e.wakeup === 'yes' ? 'Y' : 'N'} · Read: ${e.cognitiveRead === 'yes' ? 'Y' : 'N'} · Phys: ${e.boxing === 'yes' ? 'Y' : 'N'} · Intel: ${e.intellectual === 'yes' ? 'Y' : 'N'}
                     </div>
                     ${e.interrogation ? `<div style="font-size:0.8rem;margin-top:4px">Sebab: ${CAUSE_LABELS[e.interrogation.cause]} → Solusi: ${SOLUTION_LABELS[e.interrogation.solution]}</div>` : ''}
                 </div>
@@ -553,8 +553,8 @@ function renderDashboard() {
     statusCard.className = `today-status ${status}`;
     statusCard.innerHTML = `
         <h4>Status Hari Ini: ${status === 'success' ? '✓ Berhasil' : '✗ Gagal'} (${score}/4)</h4>
-        <p>Wake up 04:00: ${entry.wakeup === 'yes' ? 'Ya' : 'Tidak'} · Read: ${entry.cognitiveRead === 'yes' ? 'Ya' : 'Tidak'} · Boxing: ${entry.boxing === 'yes' ? 'Ya' : 'Tidak'} · Intel: ${entry.intellectual === 'yes' ? 'Ya' : 'Tidak'}</p>
-        ${status === 'failed' ? '<p style="color:var(--danger);margin-top:12px">⚠ Habit gagal. Buka Jurnal Harian & Ruang Interogasi, dan terima Pajak Kembalian di Keuangan.</p>' : ''}
+        <p>Wake up 04:00: ${entry.wakeup === 'yes' ? 'Ya' : 'Tidak'} · Read: ${entry.cognitiveRead === 'yes' ? 'Ya' : 'Tidak'} · Physical: ${entry.boxing === 'yes' ? 'Ya' : 'Tidak'} · Intel: ${entry.intellectual === 'yes' ? 'Ya' : 'Tidak'}</p>
+        ${status === 'failed' ? '<p style="color:var(--danger);margin-top:12px">⚠ Habit gagal. Buka Jurnal Harian & Ruang Interogasi.</p>' : ''}
     `;
 
     updateAuthorityDisplay();
@@ -1193,65 +1193,49 @@ function getPocketPercentages() {
 }
 
 function renderEconomyDashboard() {
+    // 1. Update Saldo Kantong (Kode lama)
     document.getElementById('pocket-op-amount').textContent = formatRupiah(state.pockets.operasional);
     document.getElementById('pocket-ex-amount').textContent = formatRupiah(state.pockets.eksplorasi);
     document.getElementById('pocket-cap-amount').textContent = formatRupiah(state.pockets.kapasitas);
 
-    // Calculate total layout width approximation for generic bars
-    const total = state.pockets.operasional + state.pockets.eksplorasi + state.pockets.kapasitas;
-    const getWidth = (val) => total === 0 ? 0 : Math.min(100, Math.max(5, (val / total) * 100));
+    const pocketTotal = state.pockets.operasional + state.pockets.eksplorasi + state.pockets.kapasitas;
+    const getWidth = (val) => pocketTotal === 0 ? 0 : Math.min(100, Math.max(5, (val / pocketTotal) * 100));
 
     document.getElementById('pocket-op-bar').style.width = `${getWidth(state.pockets.operasional)}%`;
     document.getElementById('pocket-ex-bar').style.width = `${getWidth(state.pockets.eksplorasi)}%`;
     document.getElementById('pocket-cap-bar').style.width = `${getWidth(state.pockets.kapasitas)}%`;
 
-    renderCausalBadge();
+    // 2. LOGIKA BARU: Hitung Total Balance & In/Out
+    let totalIncome = 0;
+    let totalExpense = 0;
+
+    state.economy.forEach(t => {
+        // Ambil nominal transaksi (t.total untuk split, t.amount untuk manual)
+        const nominal = t.total || t.amount || 0;
+
+        if (t.type === 'income' || t.type === 'split' || t.type === 'dividen') {
+            totalIncome += nominal;
+        } else if (t.type === 'expense' || t.type === 'pajak') {
+            totalExpense += nominal;
+        }
+    });
+
+    const totalBalance = totalIncome - totalExpense;
+
+    // 3. Render ke elemen HTML
+    const totalBalanceEl = document.getElementById('economy-total-balance');
+    const totalIncomeEl = document.getElementById('economy-total-income');
+    const totalExpenseEl = document.getElementById('economy-total-expense');
+
+    if (totalBalanceEl) totalBalanceEl.textContent = formatRupiah(totalBalance);
+    if (totalIncomeEl) totalIncomeEl.textContent = formatRupiah(totalIncome);
+    if (totalExpenseEl) totalExpenseEl.textContent = formatRupiah(totalExpense);
+
+    // 4. Render histori dan grafik (Kode lama)
     renderEconomyHistory();
     renderEconomyCharts();
 }
 
-function renderCausalBadge() {
-    const today = getToday();
-    const entry = state.disciplineLog[today];
-    const badgeEl = document.getElementById('eco-causal-badge');
-    if (!badgeEl) return;
-
-    if (!entry) {
-        badgeEl.innerHTML = `<div class="causal-badge">
-            <div>
-                <strong>Node 1 (Habit) Belum Diisi</strong>
-                <div style="font-size:0.85rem; color:var(--text-muted);">Isi Habit Tracker dulu untuk melihat sistem Pajak/Dividen.</div>
-            </div>
-        </div>`;
-        return;
-    }
-
-    const score = getHabitScore(entry);
-    const scorePct = (score / 4) * 100;
-
-    // Determine applied today
-    const alreadyApplied = state.economy.some(t => t.date === today && (t.type === 'dividen' || t.type === 'pajak'));
-
-    if (scorePct >= 75) {
-        // Success -> Dividen
-        badgeEl.innerHTML = `<div class="causal-badge success-state">
-            <div>
-                <strong>Dividen Aktif</strong>
-                <div style="font-size:0.85rem;">Habit score tinggi (${score}/4). Anda berhak mencairkan dividen Rp10.000 ke Eksplorasi.</div>
-            </div>
-            ${alreadyApplied ? '<span style="color:var(--success); font-weight:bold;">Telah Diambil ✓</span>' : '<button class="btn btn-primary" onclick="applyDividen()" style="background:var(--success)">Cairkan Dividen</button>'}
-        </div>`;
-    } else {
-        // Fail -> Pajak
-        badgeEl.innerHTML = `<div class="causal-badge failed-state">
-            <div>
-                <strong>Pajak Kembalian</strong>
-                <div style="font-size:0.85rem;">Habit berantakan (${score}/4). Sistem memaksa potong Rp10.000 dari Eksplorasi ke Kapasitas.</div>
-            </div>
-            ${alreadyApplied ? '<span style="color:var(--danger); font-weight:bold;">Pajak Dibayar ✓</span>' : '<button class="btn btn-primary" onclick="applyPajak()" style="background:var(--danger)">Bayar Pajak</button>'}
-        </div>`;
-    }
-}
 
 function splitIncome() {
     const input = document.getElementById('eco-total-amount');
@@ -1289,89 +1273,52 @@ function splitIncome() {
     renderJournal(); // Updates prompt potentially
 }
 
-function applyDividen() {
-    state.pockets.eksplorasi += 10000;
-    state.economy.push({
-        id: Date.now(),
-        type: 'dividen',
-        amount: 10000,
-        date: getToday(),
-        desc: 'Dividen Habit: +Rp10k ke Eksplorasi'
-    });
-    saveToStorage('matter_pockets', state.pockets);
-    saveToStorage(STORAGE_KEYS.economy, state.economy);
-    showToast('Dividen berhasil dicairkan');
-    renderEconomyDashboard();
-}
-
-function applyPajak() {
-    if (state.pockets.eksplorasi >= 10000) {
-        state.pockets.eksplorasi -= 10000;
-    } else {
-        state.pockets.eksplorasi = 0; // drain completely if not enough
-    }
-    state.pockets.kapasitas += 10000;
-
-    state.economy.push({
-        id: Date.now(),
-        type: 'pajak',
-        amount: 10000,
-        date: getToday(),
-        desc: 'Pajak Habit Gagal: Pindah Rp10k Eksplorasi → Kapasitas'
-    });
-    saveToStorage('matter_pockets', state.pockets);
-    saveToStorage(STORAGE_KEYS.economy, state.economy);
-    showToast('Pajak telah dibayarkan');
-    renderEconomyDashboard();
-}
 
 function renderEconomyHistory() {
-    const listEl = document.getElementById('eco-history-list');
+    const list = document.getElementById('eco-history-list');
+    if (!list) return;
+
     if (state.economy.length === 0) {
-        listEl.innerHTML = '<div class="empty-state"><p>Belum ada transaksi</p></div>';
+        list.innerHTML = '<div style="text-align:center; color:var(--text-muted); padding:20px;">Belum ada riwayat transaksi.</div>';
         return;
     }
 
-    const sorted = [...state.economy].sort((a, b) => b.id - a.id);
-    listEl.innerHTML = sorted.map(t => {
-        let colorCls = 'income';
-        let prefix = '+';
-        let amountText = '';
+    // Urutkan dari yang terbaru
+    const sortedHistory = [...state.economy].reverse();
 
-        if (t.type === 'split') {
-            colorCls = 'income';
-            prefix = '';
-            amountText = formatRupiah(t.total);
-        } else if (t.type === 'dividen') {
-            colorCls = 'income';
-            prefix = '+';
-            amountText = formatRupiah(t.amount);
-        } else if (t.type === 'pajak' || t.type === 'expense') {
-            colorCls = 'expense';
-            prefix = '-';
-            amountText = formatRupiah(t.amount);
-        } else {
-            // custom income
-            colorCls = 'income';
-            prefix = '+';
-            amountText = formatRupiah(t.amount);
-        }
+    list.innerHTML = sortedHistory.map((item, index) => {
+        // Balikkan index karena kita me-reverse array untuk tampilan
+        const actualIndex = state.economy.length - 1 - index;
+
+        const isIncome = ['income', 'split', 'dividen'].includes(item.type);
+        const icon = isIncome ? '↑' : '↓';
+        const color = isIncome ? 'var(--success)' : 'var(--danger)';
+        const amount = item.total || item.amount || 0;
 
         return `
-        <div class="transaction-item">
-            <div class="transaction-info">
-                <span class="transaction-category">${t.type === 'split' ? 'Alokasi Pemasukan' : (t.type === 'dividen' ? 'Dividen Habit' : (t.type === 'pajak' ? 'Pajak Kembalian' : escapeHtml(t.category)))}</span>
-                <span class="transaction-amount ${colorCls}">${prefix}${amountText}</span>
-                <span class="transaction-desc">${escapeHtml(t.desc)}</span>
+            <div class="history-item" style="display:flex; justify-content:space-between; align-items:center; padding:12px; border-bottom:1px solid var(--border);">
+                <div style="display:flex; gap:12px; align-items:center;">
+                    <div style="width:32px; height:32px; border-radius:50%; background:${color}22; color:${color}; display:flex; align-items:center; justify-content:center; font-weight:bold;">
+                        ${icon}
+                    </div>
+                    <div>
+                        <div style="font-weight:500; font-size:0.9rem;">${item.category || item.note || 'Transaksi'}</div>
+                        <div style="font-size:0.75rem; color:var(--text-muted);">${item.date || ''} ${item.note && item.category ? '• ' + item.note : ''}</div>
+                    </div>
+                </div>
+                <div style="display:flex; align-items:center; gap:15px;">
+                    <div style="text-align:right;">
+                        <div style="font-weight:600; color:${color}">${isIncome ? '+' : '-'}${formatRupiah(amount)}</div>
+                        <div style="font-size:0.7rem; color:var(--text-muted);">${item.type.toUpperCase()}</div>
+                    </div>
+                    <button onclick="deleteTransaction(${actualIndex})" style="background:none; border:none; color:var(--danger); cursor:pointer; opacity:0.6; padding:5px;">
+                        ✕
+                    </button>
+                </div>
             </div>
-            <div class="transaction-right">
-                <span class="transaction-date">${formatDisplayDate(t.date).split(' ')[0]}</span>
-                ${(t.type !== 'split' && t.type !== 'dividen' && t.type !== 'pajak') ? `<button class="delete-btn" onclick="deleteTransaction(${t.id})">Hapus</button>` : ''}
-            </div>
-        </div>
-        `}).join('');
+        `;
+    }).join('');
 }
-
 function renderEconomyCharts() {
     const dailyData = [];
     for (let i = 6; i >= 0; i--) {
@@ -1443,12 +1390,22 @@ function addTransaction() {
     renderEconomyDashboard();
 }
 
-function deleteTransaction(id) {
-    if (!confirm('Hapus transaksi ini?')) return;
-    state.economy = state.economy.filter(t => t.id !== id);
-    saveToStorage(STORAGE_KEYS.economy, state.economy);
-    renderEconomyDashboard();
-    showToast('Transaksi dihapus');
+function deleteTransaction(index) {
+    if (confirm('Apakah Anda yakin ingin menghapus transaksi ini?')) {
+        // Hapus 1 item berdasarkan index-nya
+        state.economy.splice(index, 1);
+
+        // Simpan ke LocalStorage agar tidak hilang saat refresh
+        saveToStorage(STORAGE_KEYS.economy, state.economy);
+
+        // Update tampilan secara otomatis
+        renderEconomyDashboard();
+
+        // Tampilkan pesan sukses (jika fungsi showToast tersedia di kodemu)
+        if (typeof showToast === 'function') {
+            showToast('Transaksi berhasil dihapus');
+        }
+    }
 }
 
 document.addEventListener('click', e => {
@@ -1502,12 +1459,12 @@ function renderJournal() {
         title: '',
         text: '',
         q1: '',
-        q2: 'Apa SOP / perbaikan spesifik untuk strategi Habitmu besok pagi agar dompetmu aman?'
+        q2: 'Apa SOP / perbaikan spesifik untuk strategi Habitmu besok pagi?'
     };
 
     if (isSuccess) {
         promptObj.title = 'Momentum Terjaga';
-        promptObj.text = `Kamu berhasil mempertahankan Habit hari ini (${score}/4). Saldo Eksplorasi-mu menerima dividen perlindungan.`;
+        promptObj.text = `Kamu berhasil mempertahankan Habit hari ini (${score}/4).`;
         promptObj.q1 = 'Pola atau mindset apa yang membuatmu berhasil hari ini, dan bagaimana meniru pola ini di hari lain?';
     } else {
         const failedPillars = [];
@@ -1517,7 +1474,7 @@ function renderJournal() {
         if (entry.intellectual === 'no') failedPillars.push('Belajar Struktural');
 
         promptObj.title = 'Kegagalan Terdeteksi';
-        promptObj.text = `Hari ini kamu gagal pada ${failedPillars.join(', ')}. Budget 'Playing/Eksplorasi'-mu dipotong Rp10.000.`;
+        promptObj.text = `Hari ini kamu gagal pada ${failedPillars.join(', ')}.`;
         promptObj.q1 = 'Apa penyebab eksternal yang jujur dan brutal yang membuatmu gagal eksekusi hari ini?';
     }
 
